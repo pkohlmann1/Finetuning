@@ -1,9 +1,7 @@
 import pandas as pd
 
-THREAD_LENGTH = 4
-
 # import filtered data
-filtered_data = pd.read_csv('DataFrame1.csv')
+filtered_data = pd.read_csv('DataFrameFiltered.csv')
 
 # convert to dataframe
 df = pd.DataFrame.from_records(filtered_data)
@@ -22,14 +20,9 @@ for index, row in df.iterrows():
         else:
             if len(row[i]) != 1:
                 tweet_count += 1
-    # only keep threads with exactly the specified thread_length
-    # if tweet_count != THREAD_LENGTH:
-    #     index_to_remove.append(index)
 
-# drop last three columns of each row of dataframe because they are for some reason empty
 df = df.drop(df.index[index_to_remove])
-# df = df.iloc[: , :-3]
 
 # save new dataframe to specified file
-df.to_csv('DataFrame6.csv', index=False)
+df.to_csv('DataFrameCleaned.csv', index=False)
 

@@ -1,39 +1,55 @@
 import pandas as pd
-import csv
 import advertools as adv
-import json
-# import pycld2 as cld2
+import os
+
 
 threads = {}
 keyCounter = 0
 
+
+# Method which generates threads out of all the tweets in the dataframe
 def generate_threads():
     global threads
-    for dfRow in myDF.iterrows():
-        dfRow = dfRow[1]
-        if dfRow['in_response_to_tweet_id'] == "":
-            threadString = "" + dfRow['text']
-            generate_thread_response_tree(dfRow, threadString)
-    threads = filter_duplicates()
-    # with open('file_generateThreads.txt', 'w') as file:
-    #     file.write(json.dumps(threads))  # use `json.loads` to do the reverse
+    # loop over tweets that start a thread
+    starting_tweets = dataFrame.loc[dataFrame['in_response_to_tweet_id'] == ""]
+    for dfRow in starting_tweets.iterrows():
+        threadString = "" + dfRow[1]['text']
+        # ignore starting tweets that contain some form of direct message reference
+        if not "DM" in threadString and not "Dm" in threadString \
+                and not "direct message" in threadString and not "Direct Message" in threadString \
+                and not "private message" in threadString and not "Private Message" in threadString:
+            generate_thread_response_tree(dfRow[1], threadString)
 
+
+# recursively build the thread from the starting tweet
 def generate_thread_response_tree(row, threadString):
     global keyCounter
-    if not row['response_tweet_id'] == "":
+    global dataFrame
+    # check if tweet has responses
+    if row['response_tweet_id'] != "":
+        # loop over responses
         for responseTweetId in row['response_tweet_id'].split(","):
-            response = myDF.loc[myDF['tweet_id'] == responseTweetId]
-            if response.empty:
-                pass
-            else:
+            # check if tweet with same id as response tweet exists
+            if int(responseTweetId) in dataFrame.index:
+                # get response tweet, build tweet string and continue to build thread
+                response = dataFrame.loc[[int(responseTweetId)]]
                 response = response.squeeze()
-                newThreadString = threadString + " /// " + response['text']
-                generate_thread_response_tree(response.squeeze(), newThreadString)
+                text = "" + response['text']
+                if not response.empty and not "DM" in text and not "Dm" in text\
+                and not "direct message" in text and not "Direct Message" in text\
+                and not "private message" in text and not "Private Message" in text:
+                    newThreadString = threadString + " /// " + response['text']
+                    generate_thread_response_tree(response, newThreadString)
+    # thread finished building
     else:
         threadString = filter_last_response_if_inbound(row, threadString)
         threads[keyCounter] = threadString
         keyCounter += 1
+        if keyCounter % 100000 == 0:
+            print(str(keyCounter) + " Threads generiert")
 
+
+# We can not use threads that end with a customer response so cut the last tweet if it belongs to a customer (inbound)
 def filter_last_response_if_inbound(row, threadString):
     if row["inbound"]:
         tweets = threadString.split(" /// ")
@@ -45,20 +61,28 @@ def filter_last_response_if_inbound(row, threadString):
         threadString = threadString[:len(threadString) - 3]
     return threadString
 
-def filter_duplicates():
-    result = {}
-    for key, value in threads.items():
-        if value not in result.values():
-            result[key] = value
-    return result
 
+# We do not want duplicate threads
+def filter_duplicates():
+    global threads
+    temp = {val: key for key, val in threads.items()}
+    res = {val: key for key, val in temp.items()}
+    threads = res
+
+
+# We do not want threads with only a single tweet
 def filter_single_tweet_threads():
     for key in list(threads.keys()):
         if "///" not in threads[key]:
             del threads[key]
 
+
+# We do not want emojis in the tweets
 def filter_emojis():
+    c = 0
     for key in list(threads.keys()):
+        if c % 1000 == 0:
+            print(str(c) + " Threads von Emojis gefiltert")
         summary = adv.extract_emoji(threads[key])
         if len(summary["emoji_flat"]) > 0:
             if '🤦' in summary["emoji_flat"]:
@@ -66,18 +90,17 @@ def filter_emojis():
             else:
                 for emoji in summary["emoji_flat"]:
                     threads[key] = threads[key].replace(emoji, "")
+        c += 1
 
+
+# We do not want threads that contain links
 def filter_links():
     for key in list(threads.keys()):
         if (("https" in threads[key]) or ("http" in threads[key])):
             del threads[key]
 
-# def filter_language():
-#     for key in list(threads.keys()):
-#         _, _, _, lang = cld2.detect(threads[key], returnVectors=True)
-#         if (lang[0][3] != "en"):
-#             del threads[key]
 
+# Filter special symbols
 def filter_at_tringales_amp_star_hash_minus():
     for key in threads:
         listOfWords = threads[key].split()
@@ -93,44 +116,56 @@ def filter_at_tringales_amp_star_hash_minus():
         threads[key] = threadWithoutChars
 
 
-myDF = pd.DataFrame(
-    columns=['tweet_id', 'author_id', 'inbound', 'text', 'response_tweet_id', 'in_response_to_tweet_id'])
+# folder path to all the tweets stored as multiple chunks
+dir_path = r'CHUNKS_UNUSED'
 
-with open('CHUNK1.csv', newline='', encoding="mbcs") as csvfile:
-    reader = csv.reader(csvfile, delimiter=',')
-    counter = 0
-    for row in reader:
-        myDF.loc[counter] = [row[0], row[1], row[2], row[4], row[5], row[6]]
-        counter += 1
+# list to store files
+res = []
 
+# Iterate directory
+for path in os.listdir(dir_path):
+    # check if current path is a file
+    if os.path.isfile(os.path.join(dir_path, path)):
+        res.append('CHUNKS_UNUSED/' + path)
+
+# merge files
+dataFrame = pd.concat(
+   map(pd.read_csv, res), ignore_index=True)
+
+# fill empty cell values and drop not needed column
+dataFrame.fillna('', inplace=True)
+dataFrame.drop(columns=['created_at'], inplace=True)
+# reformating column values
+dataFrame['in_response_to_tweet_id'] = dataFrame['in_response_to_tweet_id'].map(lambda in_response_to_tweet_id: "" if in_response_to_tweet_id == '' else str(int(in_response_to_tweet_id)))
+# setting tweet_ids as dataframe index for index-access to enable fast performance
+dataFrame.set_index('tweet_id', inplace=True, drop=False)
+
+
+print("make threads")
 generate_threads()
-print("made threads")
+print("Number of Threads: " + str(len(threads)))
 
+print("filtering duplicates")
+filter_duplicates()
+print("Number of Threads: " + str(len(threads)))
+
+print("filtering sigle tweets")
 filter_single_tweet_threads()
-print("filtered sigle tweets")
-# with open('file_filterSingle.txt', 'w') as file:
-#     file.write(json.dumps(threads))
+print("Number of Threads: " + str(len(threads)))
 
+print("filtering Emojis")
 filter_emojis()
-print("filtered Emojis")
-# with open('file_emojis.txt', 'w') as file:
-#     file.write(json.dumps(threads))
+print("Number of Threads: " + str(len(threads)))
 
+print("filtering links")
 filter_links()
-print("filterd links")
-# with open('file_links.txt', 'w') as file:
-#     file.write(json.dumps(threads))
+print("Number of Threads: " + str(len(threads)))
 
-# Commented out because package is not working on my local machine
-# filter_language()
-# print("filtered language")
-
+print("filtering symbols")
 filter_at_tringales_amp_star_hash_minus()
-print("filtered symbols")
-# with open('file_symbols.txt', 'w') as file:
-#     file.write(json.dumps(threads))
+print("Number of Threads: " + str(len(threads)))
 
-cntr = 0
+
 lengthOfThreads = threads.__len__()
 print("threads available: ", lengthOfThreads)
 
@@ -141,30 +176,29 @@ finalDataFrame = pd.DataFrame(
 for i in range(lengthOfThreads):
     finalDataFrame.loc[i] = [" ", " ", " ", " ", " ", " ", " ", " "]
 print("created empty DF")
-
-positionOfRow = 0
+print("fill DF with threads")
+# limit thread length to 8 tweets and parse thread dict back into dataframe in correct order
+c = 0
 for thread in threads:
     tweets = threads[thread]
     listOfTwets = tweets.split("///")
     lengthOfthread = len(listOfTwets)
     if (lengthOfthread > 8):
+        # cut of everything behind 8th tweet
         listOfTwets = listOfTwets[-8:]
         lengthOfthread = len(listOfTwets)
     for tweet in listOfTwets:
-        positionOfColumn = lengthOfthread
-        finalDataFrame.iloc[positionOfRow, (lengthOfthread - 1)] = tweet
+        finalDataFrame.iloc[c, (lengthOfthread - 1)] = tweet
         lengthOfthread -= 1
-    positionOfRow += 1
+    c += 1
 
-print("filled DF")
 
+print("last filter")
 for i in range(finalDataFrame.shape[0]):
     temp = finalDataFrame.iat[i,0]
     temp = temp[:-1]
     finalDataFrame.iat[i, 0] = temp
 
-print("last filter")
 
-
-finalDataFrame.to_csv('DataFrame1.csv', index=False)
+finalDataFrame.to_csv('DataFrameFiltered.csv', index=False)
 print("wrote DF to disc")
