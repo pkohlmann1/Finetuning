@@ -15,6 +15,8 @@
 |   +-- README.md
 ```
 
-2. Run the main.py file which does the main filtering of the data
+2. Install required packages with pip install requirements.txt
 
-3. Run the data_cleaner.py file which does some after-processing after the filtering
+3. Run the main.py file which does the main filtering of the data
+
+4. Run the data_cleaner.py file which does some after-processing after the filtering
