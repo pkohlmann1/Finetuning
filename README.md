@@ -1,6 +1,6 @@
 # How to preprocess the data
 
-1. Check that everything is set up correctly you should have a folder structure like this
+1. Check that everything is set up correctly you should have a folder structure like this. Chunks can be found here: https://www.dropbox.com/sh/4jjl7yvipibfsj3/AAAK1j0sQPZNMEGlnjmw5MW8a?dl=0
 
 ```
 .
